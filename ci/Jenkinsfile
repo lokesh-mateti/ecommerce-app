@@ -1,0 +1,174 @@
+pipeline {
+    agent any
+
+    parameters {
+        choice(name: 'SERVICE', choices: ['product-service', 'order-service', 'api-gateway'], description: 'Which microservice to build')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
+    }
+
+    environment {
+        AWS_REGION       = 'us-east-1'
+        AWS_ACCOUNT_ID   = credentials('aws-account-id')
+        ECR_REGISTRY     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        IMAGE_TAG        = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
+        SERVICE_DIR      = "services/${params.SERVICE}"
+        GITOPS_REPO      = 'https://github.com/your-org/ecommerce-gitops.git'
+        GITOPS_CREDS     = credentials('gitops-repo-creds')
+        SNYK_TOKEN       = credentials('snyk-token')
+    }
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    sh '''
+                        python3 -m venv venv
+                        . venv/bin/activate
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+                    '''
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    sh '''
+                        . venv/bin/activate
+                        pytest tests/ -v --junitxml=test-results.xml
+                    '''
+                }
+            }
+            post {
+                always {
+                    junit "${SERVICE_DIR}/test-results.xml"
+                }
+            }
+        }
+
+        stage('SAST - Static Code Analysis') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    sh '''
+                        . venv/bin/activate
+                        pip install bandit
+                        bandit -r app/ -f json -o bandit-report.json || true
+                    '''
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: "${SERVICE_DIR}/bandit-report.json", allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('SCA - Dependency Vulnerability Scan') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    sh '''
+                        . venv/bin/activate
+                        pip install safety
+                        safety check -r requirements.txt --json > safety-report.json || true
+                    '''
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: "${SERVICE_DIR}/safety-report.json", allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                dir("${SERVICE_DIR}") {
+                    sh """
+                        docker build -t ${params.SERVICE}:${IMAGE_TAG} .
+                        docker tag ${params.SERVICE}:${IMAGE_TAG} ${ECR_REGISTRY}/${params.SERVICE}:${IMAGE_TAG}
+                        docker tag ${params.SERVICE}:${IMAGE_TAG} ${ECR_REGISTRY}/${params.SERVICE}:latest
+                    """
+                }
+            }
+        }
+
+        stage('Container Image Scan - Trivy') {
+            steps {
+                sh """
+                    trivy image --severity HIGH,CRITICAL --exit-code 1 \
+                        --format json --output trivy-report.json \
+                        ${params.SERVICE}:${IMAGE_TAG} || true
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Push to ECR') {
+            steps {
+                sh """
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                        docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                    docker push ${ECR_REGISTRY}/${params.SERVICE}:${IMAGE_TAG}
+                    docker push ${ECR_REGISTRY}/${params.SERVICE}:latest
+                """
+            }
+        }
+
+        stage('Update GitOps Repo') {
+            steps {
+                sh """
+                    rm -rf gitops-repo
+                    git clone https://${GITOPS_CREDS_USR}:${GITOPS_CREDS_PSW}@\$(echo ${GITOPS_REPO} | sed 's#https://##') gitops-repo
+                    cd gitops-repo
+
+                    # Update the image tag in the environment-specific Helm values file
+                    sed -i "s|tag:.*|tag: ${IMAGE_TAG}|g" apps/${params.SERVICE}/values-${params.ENVIRONMENT}.yaml
+
+                    git config user.email "jenkins-ci@example.com"
+                    git config user.name "Jenkins CI"
+                    git add apps/${params.SERVICE}/values-${params.ENVIRONMENT}.yaml
+                    git commit -m "ci: update ${params.SERVICE} image to ${IMAGE_TAG} [${params.ENVIRONMENT}]"
+                    git push origin main
+                """
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh """
+                    docker rmi ${params.SERVICE}:${IMAGE_TAG} || true
+                    docker rmi ${ECR_REGISTRY}/${params.SERVICE}:${IMAGE_TAG} || true
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline succeeded for ${params.SERVICE} → ${params.ENVIRONMENT}. ArgoCD will auto-sync the new image."
+        }
+        failure {
+            echo "Pipeline failed for ${params.SERVICE}. Check archived scan reports for details."
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
