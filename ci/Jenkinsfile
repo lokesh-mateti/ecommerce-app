@@ -14,7 +14,7 @@ pipeline {
         SERVICE_DIR      = "services/${params.SERVICE}"
         GITOPS_REPO      = 'https://github.com/your-org/ecommerce-gitops.git'
         GITOPS_CREDS     = credentials('gitops-repo-creds')
-        SNYK_TOKEN       = credentials('snyk-token')
+//      SNYK_TOKEN       = credentials('snyk-token')
     }
 
     options {

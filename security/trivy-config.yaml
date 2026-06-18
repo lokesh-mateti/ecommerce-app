@@ -1,0 +1,36 @@
+---
+# Trivy configuration for CI/CD pipeline scanning
+# Used by the Jenkins pipeline stage: Container Image Scan - Trivy
+# Docs: https://aquasecurity.github.io/trivy/latest/docs/references/configuration/config-file/
+
+# Scan severity levels — pipeline will fail on HIGH and CRITICAL
+severity:
+  - HIGH
+  - CRITICAL
+
+# Exit code 1 on findings (causes Jenkins stage to fail)
+exit-code: 1
+
+# Output format for archiving in Jenkins
+format: json
+
+# Ignore unfixed vulnerabilities to reduce noise on base image CVEs
+ignore-unfixed: true
+
+# Scan types to run
+scanners:
+  - vuln      # OS and library vulnerabilities
+  - secret    # Hardcoded secrets/tokens in image layers
+  - misconfig # Dockerfile and config misconfigurations
+
+# Vulnerability database update timeout
+db:
+  download-timeout: 5m
+
+# Cache directory (speeds up repeated scans in CI)
+cache:
+  dir: /tmp/trivy-cache
+
+# Skip specific CVEs that are accepted risks or false positives.
+# Document every entry with a reason and review date.
+# ignore-policy: .trivyignore  # uncomment and create .trivyignore file if needed
