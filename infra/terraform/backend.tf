@@ -23,7 +23,7 @@ terraform {
   # Remote state in S3 with DynamoDB locking — replace bucket/table with your own.
   # Create these manually (or in a separate bootstrap stack) before running terraform init.
   backend "s3" {
-    bucket       = "ecommerce-eks-terraform-state"
+    bucket       = "ecommerce-eks-tfstate-396913"
     key          = "eks/terraform.tfstate"
     region       = "us-east-1"
     use_lockfile = true
