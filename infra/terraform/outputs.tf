@@ -24,6 +24,7 @@ output "configure_kubectl" {
   description = "Run this command to update your local kubeconfig"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
+
 output "jenkins_url" {
   description = "Jenkins UI URL"
   value       = module.jenkins.jenkins_url
@@ -32,4 +33,14 @@ output "jenkins_url" {
 output "jenkins_public_ip" {
   description = "Jenkins server public IP"
   value       = module.jenkins.jenkins_public_ip
+}
+
+output "alb_controller_role_arn" {
+  description = "IRSA role ARN used by the AWS Load Balancer Controller"
+  value       = module.alb_controller.iam_role_arn
+}
+
+output "alb_controller_status" {
+  description = "Helm release status of the AWS Load Balancer Controller"
+  value       = module.alb_controller.helm_release_status
 }
