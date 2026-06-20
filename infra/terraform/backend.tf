@@ -18,12 +18,14 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.30"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 
-  # Remote state in S3 with DynamoDB locking — replace bucket/table with your own.
-  # Create these manually (or in a separate bootstrap stack) before running terraform init.
   backend "s3" {
-    bucket       = "ecommerce-eks-tfstate-396913"
+    bucket       = "ecommerce-eks-terraform-state"
     key          = "eks/terraform.tfstate"
     region       = "us-east-1"
     use_lockfile = true
@@ -35,8 +37,6 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Helm and Kubernetes providers authenticate via the EKS cluster endpoint.
-# They depend on the EKS module so the cluster exists before Helm tries to connect.
 provider "helm" {
   kubernetes {
     host                   = module.eks.cluster_endpoint

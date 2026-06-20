@@ -13,8 +13,6 @@ resource "aws_iam_policy" "lbc" {
 
 # ---------------------------------------------------------------------------
 # IRSA — IAM Role for Service Account
-# The LBC pod assumes this role via the OIDC trust. No node-level permissions
-# needed; the pod gets exactly the permissions it needs and nothing more.
 # ---------------------------------------------------------------------------
 data "aws_iam_policy_document" "lbc_assume_role" {
   statement {
@@ -55,9 +53,21 @@ resource "aws_iam_role_policy_attachment" "lbc" {
 }
 
 # ---------------------------------------------------------------------------
+# Add the EKS Helm repo automatically — no manual 'helm repo add' needed
+# ---------------------------------------------------------------------------
+resource "null_resource" "helm_repo" {
+  provisioner "local-exec" {
+    command = "helm repo add eks https://aws.github.io/eks-charts && helm repo update eks"
+  }
+
+  # Re-run only if the repo URL changes
+  triggers = {
+    repo_url = "https://aws.github.io/eks-charts"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Helm release — installs the controller into kube-system
-# serviceAccount.create=true so Helm creates the SA and annotates it with
-# the IAM role ARN — that's what makes IRSA work.
 # ---------------------------------------------------------------------------
 resource "helm_release" "lbc" {
   name       = "aws-load-balancer-controller"
@@ -104,5 +114,8 @@ resource "helm_release" "lbc" {
     value = "2"
   }
 
-  depends_on = [aws_iam_role_policy_attachment.lbc]
+  depends_on = [
+    aws_iam_role_policy_attachment.lbc,
+    null_resource.helm_repo
+  ]
 }
