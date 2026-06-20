@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'SERVICE', choices: ['product-service', 'order-service', 'api-gateway'], description: 'Which microservice to build')
+        choice(name: 'SERVICE', choices: ['auto-detect', 'product-service', 'order-service', 'api-gateway'], description: 'Which microservice to build (auto-detect checks git changes)')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
         string(name: 'GITOPS_REPO', defaultValue: 'https://github.com/lokesh-mateti/ecommerce-gitops.git', description: 'GitOps repository URL')
     }
@@ -11,10 +11,7 @@ pipeline {
         AWS_REGION       = 'us-east-1'
         AWS_ACCOUNT_ID   = credentials('aws-account-id')
         ECR_REGISTRY     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        IMAGE_TAG        = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
-        SERVICE_DIR      = "services/${params.SERVICE}"
         GITOPS_CREDS     = credentials('gitops-repo-creds')
-//      SNYK_TOKEN       = credentials('snyk-token')
     }
 
     options {
@@ -30,142 +27,159 @@ pipeline {
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Detect Changed Services') {
             steps {
-                dir("${SERVICE_DIR}") {
-                    sh '''
-                        python3 -m venv venv
-                        . venv/bin/activate
-                        pip install --upgrade pip
-                        pip install -r requirements.txt
-                    '''
+                script {
+                    if (params.SERVICE == 'auto-detect') {
+                        def changes = sh(script: "git diff --name-only HEAD~1 HEAD || echo 'services/'", returnStdout: true).trim()
+                        echo "Changed files:\n${changes}"
+
+                        def services = []
+                        if (changes.contains('services/product-service')) {
+                            services.add('product-service')
+                        }
+                        if (changes.contains('services/order-service')) {
+                            services.add('order-service')
+                        }
+                        if (changes.contains('services/api-gateway')) {
+                            services.add('api-gateway')
+                        }
+
+                        if (services.isEmpty()) {
+                            echo "No service changes detected. Skipping build."
+                            currentBuild.result = 'NOT_BUILT'
+                            error("No service changes detected in this commit.")
+                        }
+
+                        env.CHANGED_SERVICES = services.join(',')
+                        echo "Services to build: ${env.CHANGED_SERVICES}"
+                    } else {
+                        env.CHANGED_SERVICES = params.SERVICE
+                        echo "Manually selected service: ${env.CHANGED_SERVICES}"
+                    }
                 }
             }
         }
 
-        stage('Unit Tests') {
+        stage('Build Services') {
             steps {
-                dir("${SERVICE_DIR}") {
-                    sh '''
-                        . venv/bin/activate
-                        pytest tests/ -v --junitxml=test-results.xml
-                    '''
+                script {
+                    def servicesToBuild = env.CHANGED_SERVICES.split(',')
+
+                    for (svc in servicesToBuild) {
+                        def service = svc.trim()
+                        def serviceDir = "services/${service}"
+                        def imageTag = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
+
+                        echo "========== Building ${service} =========="
+
+                        stage("${service} - Install Dependencies") {
+                            dir(serviceDir) {
+                                sh """
+                                    python3 -m venv venv
+                                    . venv/bin/activate
+                                    pip install --upgrade pip
+                                    pip install -r requirements.txt
+                                """
+                            }
+                        }
+
+                        stage("${service} - Unit Tests") {
+                            dir(serviceDir) {
+                                sh """
+                                    . venv/bin/activate
+                                    pytest tests/ -v --junitxml=test-results.xml
+                                """
+                            }
+                            junit "${serviceDir}/test-results.xml"
+                        }
+
+                        stage("${service} - SAST (Bandit)") {
+                            dir(serviceDir) {
+                                sh """
+                                    . venv/bin/activate
+                                    pip install bandit
+                                    bandit -r app/ -f json -o bandit-report.json || true
+                                """
+                            }
+                            archiveArtifacts artifacts: "${serviceDir}/bandit-report.json", allowEmptyArchive: true
+                        }
+
+                        stage("${service} - SCA (Safety)") {
+                            dir(serviceDir) {
+                                sh """
+                                    . venv/bin/activate
+                                    pip install safety
+                                    safety check -r requirements.txt --json > safety-report.json || true
+                                """
+                            }
+                            archiveArtifacts artifacts: "${serviceDir}/safety-report.json", allowEmptyArchive: true
+                        }
+
+                        stage("${service} - Build Docker Image") {
+                            dir(serviceDir) {
+                                sh """
+                                    docker build -t ${service}:${imageTag} .
+                                    docker tag ${service}:${imageTag} ${ECR_REGISTRY}/${service}:${imageTag}
+                                    docker tag ${service}:${imageTag} ${ECR_REGISTRY}/${service}:latest
+                                """
+                            }
+                        }
+
+                        stage("${service} - Trivy Scan") {
+                            sh """
+                                trivy image --severity HIGH,CRITICAL --exit-code 1 \
+                                    --format json --output trivy-report-${service}.json \
+                                    ${service}:${imageTag} || true
+                            """
+                            archiveArtifacts artifacts: "trivy-report-${service}.json", allowEmptyArchive: true
+                        }
+
+                        stage("${service} - Push to ECR") {
+                            sh """
+                                aws ecr get-login-password --region ${AWS_REGION} | \
+                                    docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                                docker push ${ECR_REGISTRY}/${service}:${imageTag}
+                                docker push ${ECR_REGISTRY}/${service}:latest
+                            """
+                        }
+
+                        stage("${service} - Update GitOps Repo") {
+                            sh """
+                                rm -rf gitops-repo
+                                git clone https://${GITOPS_CREDS_USR}:${GITOPS_CREDS_PSW}@\$(echo ${params.GITOPS_REPO} | sed 's#https://##') gitops-repo
+                                cd gitops-repo
+
+                                sed -i "s|tag:.*|tag: ${imageTag}|g" apps/${service}/values-${params.ENVIRONMENT}.yaml
+
+                                git config user.email "jenkins-ci@example.com"
+                                git config user.name "Jenkins CI"
+                                git add apps/${service}/values-${params.ENVIRONMENT}.yaml
+                                git commit -m "ci: update ${service} image to ${imageTag} [${params.ENVIRONMENT}]"
+                                git push origin main
+                            """
+                        }
+
+                        stage("${service} - Cleanup") {
+                            sh """
+                                docker rmi ${service}:${imageTag} || true
+                                docker rmi ${ECR_REGISTRY}/${service}:${imageTag} || true
+                            """
+                        }
+
+                        echo "========== ${service} build complete =========="
+                    }
                 }
-            }
-            post {
-                always {
-                    junit "${SERVICE_DIR}/test-results.xml"
-                }
-            }
-        }
-
-        stage('SAST - Static Code Analysis') {
-            steps {
-                dir("${SERVICE_DIR}") {
-                    sh '''
-                        . venv/bin/activate
-                        pip install bandit
-                        bandit -r app/ -f json -o bandit-report.json || true
-                    '''
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: "${SERVICE_DIR}/bandit-report.json", allowEmptyArchive: true
-                }
-            }
-        }
-
-        stage('SCA - Dependency Vulnerability Scan') {
-            steps {
-                dir("${SERVICE_DIR}") {
-                    sh '''
-                        . venv/bin/activate
-                        pip install safety
-                        safety check -r requirements.txt --json > safety-report.json || true
-                    '''
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: "${SERVICE_DIR}/safety-report.json", allowEmptyArchive: true
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                dir("${SERVICE_DIR}") {
-                    sh """
-                        docker build -t ${params.SERVICE}:${IMAGE_TAG} .
-                        docker tag ${params.SERVICE}:${IMAGE_TAG} ${ECR_REGISTRY}/${params.SERVICE}:${IMAGE_TAG}
-                        docker tag ${params.SERVICE}:${IMAGE_TAG} ${ECR_REGISTRY}/${params.SERVICE}:latest
-                    """
-                }
-            }
-        }
-
-        stage('Container Image Scan - Trivy') {
-            steps {
-                sh """
-                    trivy image --severity HIGH,CRITICAL --exit-code 1 \
-                        --format json --output trivy-report.json \
-                        ${params.SERVICE}:${IMAGE_TAG} || true
-                """
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
-                }
-            }
-        }
-
-        stage('Push to ECR') {
-            steps {
-                sh """
-                    aws ecr get-login-password --region ${AWS_REGION} | \
-                        docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                    docker push ${ECR_REGISTRY}/${params.SERVICE}:${IMAGE_TAG}
-                    docker push ${ECR_REGISTRY}/${params.SERVICE}:latest
-                """
-            }
-        }
-
-        stage('Update GitOps Repo') {
-            steps {
-                sh """
-                    rm -rf gitops-repo
-                    git clone https://${GITOPS_CREDS_USR}:${GITOPS_CREDS_PSW}@\$(echo ${params.GITOPS_REPO} | sed 's#https://##') gitops-repo
-                    cd gitops-repo
-
-                    # Update the image tag in the environment-specific Helm values file
-                    sed -i "s|tag:.*|tag: ${IMAGE_TAG}|g" apps/${params.SERVICE}/values-${params.ENVIRONMENT}.yaml
-
-                    git config user.email "jenkins-ci@example.com"
-                    git config user.name "Jenkins CI"
-                    git add apps/${params.SERVICE}/values-${params.ENVIRONMENT}.yaml
-                    git commit -m "ci: update ${params.SERVICE} image to ${IMAGE_TAG} [${params.ENVIRONMENT}]"
-                    git push origin main
-                """
-            }
-        }
-
-        stage('Cleanup') {
-            steps {
-                sh """
-                    docker rmi ${params.SERVICE}:${IMAGE_TAG} || true
-                    docker rmi ${ECR_REGISTRY}/${params.SERVICE}:${IMAGE_TAG} || true
-                """
             }
         }
     }
 
     post {
         success {
-            echo "Pipeline succeeded for ${params.SERVICE} → ${params.ENVIRONMENT}. ArgoCD will auto-sync the new image."
+            echo "Pipeline succeeded for ${env.CHANGED_SERVICES} → ${params.ENVIRONMENT}. ArgoCD will auto-sync the new image."
         }
         failure {
-            echo "Pipeline failed for ${params.SERVICE}. Check archived scan reports for details."
+            echo "Pipeline failed. Check archived scan reports for details."
         }
         always {
             cleanWs()
