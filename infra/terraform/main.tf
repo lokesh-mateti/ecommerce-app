@@ -29,3 +29,12 @@ module "ecr" {
   repository_names = ["product-service", "order-service", "api-gateway"]
   environment      = var.environment
 }
+module "jenkins" {
+  source = "./modules/jenkins"
+
+  vpc_id        = module.vpc.vpc_id
+  subnet_id     = module.vpc.public_subnet_ids[0]
+  instance_type = var.jenkins_instance_type
+  key_name      = var.jenkins_key_name
+  environment   = var.environment
+}

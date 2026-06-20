@@ -24,3 +24,12 @@ output "configure_kubectl" {
   description = "Run this command to update your local kubeconfig"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
+output "jenkins_url" {
+  description = "Jenkins UI URL"
+  value       = module.jenkins.jenkins_url
+}
+
+output "jenkins_public_ip" {
+  description = "Jenkins server public IP"
+  value       = module.jenkins.jenkins_public_ip
+}
