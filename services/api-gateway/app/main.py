@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 from app.routes import router
 
@@ -17,6 +18,33 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    # Add HTTPBearer security scheme so Swagger shows the Authorize button
+    schema["components"]["securitySchemes"] = {
+        "HTTPBearer": {
+            "type": "http",
+            "scheme": "bearer",
+        }
+    }
+    # Apply security globally to all routes
+    for path in schema["paths"].values():
+        for method in path.values():
+            method.setdefault("security", [{"HTTPBearer": []}])
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 @app.get("/health")
