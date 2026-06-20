@@ -27,4 +27,4 @@ def health_check():
 
 @app.get("/")
 def root():
-    return {"message": "API Gateway v3 - Demo"}
+    return {"message": "API Gateway v4 - Demo"}
