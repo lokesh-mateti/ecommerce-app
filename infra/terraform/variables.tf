@@ -61,3 +61,13 @@ variable "node_max_size" {
   type    = number
   default = 4
 }
+variable "jenkins_instance_type" {
+  description = "EC2 instance type for Jenkins server"
+  type        = string
+  default     = "t3.medium"
+}
+
+variable "jenkins_key_name" {
+  description = "SSH key pair name for Jenkins EC2 (must exist in AWS)"
+  type        = string
+}
