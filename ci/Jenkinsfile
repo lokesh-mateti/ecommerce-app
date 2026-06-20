@@ -121,7 +121,6 @@ pipeline {
                                 sh """
                                     docker build -t ${service}:${imageTag} .
                                     docker tag ${service}:${imageTag} ${ECR_REGISTRY}/${service}:${imageTag}
-                                    docker tag ${service}:${imageTag} ${ECR_REGISTRY}/${service}:latest
                                 """
                             }
                         }
@@ -140,7 +139,6 @@ pipeline {
                                 aws ecr get-login-password --region ${AWS_REGION} | \
                                     docker login --username AWS --password-stdin ${ECR_REGISTRY}
                                 docker push ${ECR_REGISTRY}/${service}:${imageTag}
-                                docker push ${ECR_REGISTRY}/${service}:latest
                             """
                         }
 
