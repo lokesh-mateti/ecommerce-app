@@ -4,6 +4,7 @@ pipeline {
     parameters {
         choice(name: 'SERVICE', choices: ['product-service', 'order-service', 'api-gateway'], description: 'Which microservice to build')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
+        string(name: 'GITOPS_REPO', defaultValue: 'https://github.com/lokesh-mateti/ecommerce-gitops.git', description: 'GitOps repository URL')
     }
 
     environment {
@@ -12,7 +13,6 @@ pipeline {
         ECR_REGISTRY     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         IMAGE_TAG        = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
         SERVICE_DIR      = "services/${params.SERVICE}"
-        GITOPS_REPO      = 'https://github.com/your-org/ecommerce-gitops.git'
         GITOPS_CREDS     = credentials('gitops-repo-creds')
 //      SNYK_TOKEN       = credentials('snyk-token')
     }
@@ -135,7 +135,7 @@ pipeline {
             steps {
                 sh """
                     rm -rf gitops-repo
-                    git clone https://${GITOPS_CREDS_USR}:${GITOPS_CREDS_PSW}@\$(echo ${GITOPS_REPO} | sed 's#https://##') gitops-repo
+                    git clone https://${GITOPS_CREDS_USR}:${GITOPS_CREDS_PSW}@\$(echo ${params.GITOPS_REPO} | sed 's#https://##') gitops-repo
                     cd gitops-repo
 
                     # Update the image tag in the environment-specific Helm values file
