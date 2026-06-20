@@ -84,6 +84,7 @@ resource "aws_iam_instance_profile" "jenkins" {
 resource "aws_instance" "jenkins" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
+  # key_name is optional — null means no key pair (instance launched without one)
   key_name                    = var.key_name
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [aws_security_group.jenkins.id]
@@ -140,6 +141,16 @@ resource "aws_instance" "jenkins" {
     # Restart Jenkins to pick up docker group
     systemctl restart jenkins
   EOF
+
+  # Prevent accidental replacement — key_name and user_data changes
+  # should not destroy a running Jenkins with active jobs/config
+  lifecycle {
+    ignore_changes = [
+      key_name,
+      user_data,
+      ami,
+    ]
+  }
 
   tags = {
     Name        = "jenkins-server"
