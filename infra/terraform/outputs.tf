@@ -44,3 +44,13 @@ output "alb_controller_status" {
   description = "Helm release status of the AWS Load Balancer Controller"
   value       = module.alb_controller.helm_release_status
 }
+
+output "grafana_access_command" {
+  description = "Run this to access Grafana UI on http://localhost:3000"
+  value       = module.monitoring.grafana_access_command
+}
+
+output "prometheus_access_command" {
+  description = "Run this to access Prometheus UI on http://localhost:9090"
+  value       = module.monitoring.prometheus_access_command
+}

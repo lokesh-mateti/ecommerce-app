@@ -61,6 +61,7 @@ variable "node_max_size" {
   type    = number
   default = 4
 }
+
 variable "jenkins_instance_type" {
   description = "EC2 instance type for Jenkins server"
   type        = string
@@ -70,4 +71,11 @@ variable "jenkins_instance_type" {
 variable "jenkins_key_name" {
   description = "SSH key pair name for Jenkins EC2 (must exist in AWS)"
   type        = string
+}
+
+variable "grafana_admin_password" {
+  description = "Grafana admin UI password"
+  type        = string
+  default     = "admin123"
+  sensitive   = true
 }

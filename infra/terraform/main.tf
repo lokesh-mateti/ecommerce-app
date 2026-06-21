@@ -52,3 +52,12 @@ module "alb_controller" {
 
   depends_on = [module.eks]
 }
+
+module "monitoring" {
+  source = "./modules/monitoring"
+
+  environment            = var.environment
+  grafana_admin_password = var.grafana_admin_password
+
+  depends_on = [module.eks, module.alb_controller]
+}
