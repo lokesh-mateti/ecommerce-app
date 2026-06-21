@@ -6,23 +6,23 @@ from app.models import AnalyzeRequest, AnalyzeResponse
 router = APIRouter()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite-preview-06-17"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 
 def build_prompt(req: AnalyzeRequest) -> str:
-    return f"""DevSecOps expert. Analyze CI/CD failure. Reply in this EXACT format only:
+    return f"""You are a DevSecOps expert. Analyze this Jenkins failure and reply ONLY in this exact format:
 
-ROOT CAUSE: <one sentence>
-SEVERITY: <LOW or MEDIUM or HIGH or CRITICAL>
+ROOT CAUSE: <one sentence explaining the cause>
+SEVERITY: <HIGH>
 FIX:
-1. <step>
-2. <step>
-3. <step>
+1. <step one>
+2. <step two>
+3. <step three>
 
 Service: {req.service}
 Build: {req.build_number}
-LOG: {req.log[-1000:]}"""
+LOG: {req.log[-800:]}"""
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, tags=["analyzer"])
@@ -38,10 +38,7 @@ async def analyze_log(req: AnalyzeRequest):
         ],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 500,
-        },
-        "thinkingConfig": {
-            "thinkingBudget": 0
+            "maxOutputTokens": 300,
         }
     }
 
