@@ -84,7 +84,7 @@ pipeline {
                             dir(serviceDir) {
                                 sh """
                                     . venv/bin/activate
-                                    pytest tests/ -v --junitxml=test-results.xml || true
+                                    pytest tests/ -v --junitxml=test-results.xml
                                 """
                             }
                         }
