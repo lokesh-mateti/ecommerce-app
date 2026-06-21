@@ -6,32 +6,27 @@ from app.models import AnalyzeRequest, AnalyzeResponse
 router = APIRouter()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-# Use gemini-2.0-flash which doesn't have thinking token overhead
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 
 def build_prompt(req: AnalyzeRequest) -> str:
-    return f"""You are a DevSecOps expert. Analyze this CI/CD failure and respond in EXACTLY this format:
+    return f"""DevSecOps expert. Analyze CI/CD failure. Reply in this EXACT format only:
 
 ROOT CAUSE: <one sentence>
-SEVERITY: HIGH
+SEVERITY: <LOW or MEDIUM or HIGH or CRITICAL>
 FIX:
-1. <step one>
-2. <step two>
-3. <step three>
+1. <step>
+2. <step>
+3. <step>
 
 Service: {req.service}
 Build: {req.build_number}
-
-LOG:
-{req.log[-2000:]}"""
+LOG: {req.log[-1000:]}"""
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, tags=["analyzer"])
 async def analyze_log(req: AnalyzeRequest):
-    """Analyze a failure log using Gemini AI."""
-
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
 
@@ -43,8 +38,10 @@ async def analyze_log(req: AnalyzeRequest):
         ],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 2048,
-            "candidateCount": 1,
+            "maxOutputTokens": 500,
+        },
+        "thinkingConfig": {
+            "thinkingBudget": 0
         }
     }
 
@@ -67,7 +64,6 @@ async def analyze_log(req: AnalyzeRequest):
     except (KeyError, IndexError):
         raise HTTPException(status_code=502, detail=f"Unexpected response: {data}")
 
-    # Parse structured fields
     root_cause = "See full analysis"
     severity = "MEDIUM"
     fix_lines = []
@@ -98,6 +94,5 @@ async def analyze_log(req: AnalyzeRequest):
 
 @router.post("/analyze/jenkins", tags=["analyzer"])
 async def analyze_jenkins_failure(req: AnalyzeRequest):
-    """Convenience endpoint for Jenkins pipeline failures."""
     req.context = "Jenkins CI/CD pipeline on EKS microservices project"
     return await analyze_log(req)
