@@ -26,7 +26,7 @@ module "eks" {
 module "ecr" {
   source = "./modules/ecr"
 
-  repository_names = ["product-service", "order-service", "api-gateway"]
+  repository_names = ["product-service", "order-service", "api-gateway", "ai-analyzer"]
   environment      = var.environment
 }
 

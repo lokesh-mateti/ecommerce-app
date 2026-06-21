@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'SERVICE', choices: ['auto-detect', 'product-service', 'order-service', 'api-gateway'], description: 'Which microservice to build (auto-detect checks git changes)')
+        choice(name: 'SERVICE', choices: ['auto-detect', 'product-service', 'order-service', 'api-gateway', 'ai-analyzer'], description: 'Which microservice to build (auto-detect checks git changes)')
         choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
         string(name: 'GITOPS_REPO', defaultValue: 'https://github.com/lokesh-mateti/ecommerce-gitops.git', description: 'GitOps repository URL')
     }
@@ -12,6 +12,7 @@ pipeline {
         AWS_ACCOUNT_ID   = credentials('aws-account-id')
         ECR_REGISTRY     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         GITOPS_CREDS     = credentials('gitops-repo-creds')
+        AI_ANALYZER_URL  = 'http://ai-analyzer.ecommerce-dev.svc.cluster.local/analyze/jenkins'
     }
 
     options {
@@ -43,6 +44,9 @@ pipeline {
                         }
                         if (changes.contains('services/api-gateway')) {
                             services.add('api-gateway')
+                        }
+                        if (changes.contains('services/ai-analyzer')) {
+                            services.add('ai-analyzer')
                         }
 
                         if (services.isEmpty()) {
@@ -177,7 +181,40 @@ pipeline {
             echo "Pipeline succeeded for ${env.CHANGED_SERVICES} → ${params.ENVIRONMENT}. ArgoCD will auto-sync the new image."
         }
         failure {
-            echo "Pipeline failed. Check archived scan reports for details."
+            script {
+                echo "Pipeline failed. Sending logs to AI Analyzer..."
+                try {
+                    // Collect last 100 lines of build log
+                    def buildLog = currentBuild.rawBuild.getLog(100).join('\n')
+
+                    def payload = groovy.json.JsonOutput.toJson([
+                        log          : buildLog,
+                        service      : env.CHANGED_SERVICES ?: 'unknown',
+                        build_number : env.BUILD_NUMBER,
+                        context      : "Jenkins CI/CD pipeline failure on EKS microservices project"
+                    ])
+
+                    def response = sh(
+                        script: """
+                            curl -s -X POST ${AI_ANALYZER_URL} \
+                                -H 'Content-Type: application/json' \
+                                -d '${payload}' \
+                                --connect-timeout 10 \
+                                --max-time 30 || echo '{"error": "AI analyzer unreachable"}'
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "============================================"
+                    echo "🤖 AI FAILURE ANALYSIS"
+                    echo "============================================"
+                    echo "${response}"
+                    echo "============================================"
+
+                } catch (Exception e) {
+                    echo "AI Analyzer call failed: ${e.message}"
+                }
+            }
         }
         always {
             cleanWs()
