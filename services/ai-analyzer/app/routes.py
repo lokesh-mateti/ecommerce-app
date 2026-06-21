@@ -11,33 +11,26 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_M
 
 
 def build_prompt(req: AnalyzeRequest) -> str:
-    return f"""You are a DevSecOps expert analyzing a CI/CD pipeline failure.
+    return f"""You are a DevSecOps expert. Analyze this CI/CD failure log and respond in EXACTLY this format with no extra text:
+
+ROOT CAUSE: <one sentence explaining the exact cause>
+SEVERITY: <must be exactly one of: LOW, MEDIUM, HIGH, CRITICAL>
+FIX:
+1. <first step>
+2. <second step>
+3. <third step if needed>
 
 Context: {req.context}
 Service: {req.service}
-Build Number: {req.build_number}
+Build: {req.build_number}
 
-Analyze the following failure log and provide:
-1. ROOT CAUSE: What exactly caused the failure (1-2 sentences)
-2. SEVERITY: One of [LOW, MEDIUM, HIGH, CRITICAL]
-3. FIX: Exact steps to fix the issue (numbered list)
-
-Keep your response concise and actionable. Format exactly as:
-ROOT CAUSE: <explanation>
-SEVERITY: <level>
-FIX:
-1. <step>
-2. <step>
-...
-
-FAILURE LOG:
-{req.log[-3000:]}
-"""
+LOG:
+{req.log[-2000:]}"""
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, tags=["analyzer"])
 async def analyze_log(req: AnalyzeRequest):
-    """Analyze a failure log using Gemini 2.5 Flash and return root cause + fix."""
+    """Analyze a failure log using Gemini 2.5 Flash."""
 
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
@@ -51,8 +44,8 @@ async def analyze_log(req: AnalyzeRequest):
             }
         ],
         "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 1024,
+            "temperature": 0.1,
+            "maxOutputTokens": 512,
         }
     }
 
@@ -70,33 +63,29 @@ async def analyze_log(req: AnalyzeRequest):
     except httpx.RequestError as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach Gemini API: {str(e)}")
 
-    # Extract text from Gemini response
     try:
-        full_analysis = data["candidates"][0]["content"]["parts"][0]["text"]
+        full_analysis = data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (KeyError, IndexError):
         raise HTTPException(status_code=502, detail="Unexpected Gemini response format")
 
     # Parse structured fields
     root_cause = "See full analysis"
     severity = "MEDIUM"
-    fix_suggestion = "See full analysis"
-
-    lines = full_analysis.split("\n")
     fix_lines = []
     in_fix = False
 
-    for line in lines:
+    for line in full_analysis.split("\n"):
+        line = line.strip()
         if line.startswith("ROOT CAUSE:"):
             root_cause = line.replace("ROOT CAUSE:", "").strip()
         elif line.startswith("SEVERITY:"):
             severity = line.replace("SEVERITY:", "").strip()
         elif line.startswith("FIX:"):
             in_fix = True
-        elif in_fix and line.strip():
-            fix_lines.append(line.strip())
+        elif in_fix and line:
+            fix_lines.append(line)
 
-    if fix_lines:
-        fix_suggestion = "\n".join(fix_lines)
+    fix_suggestion = "\n".join(fix_lines) if fix_lines else "See full analysis"
 
     return AnalyzeResponse(
         service=req.service,
@@ -110,6 +99,6 @@ async def analyze_log(req: AnalyzeRequest):
 
 @router.post("/analyze/jenkins", tags=["analyzer"])
 async def analyze_jenkins_failure(req: AnalyzeRequest):
-    """Convenience endpoint specifically for Jenkins pipeline failures."""
+    """Convenience endpoint for Jenkins pipeline failures."""
     req.context = "Jenkins CI/CD pipeline on EKS microservices project"
     return await analyze_log(req)
