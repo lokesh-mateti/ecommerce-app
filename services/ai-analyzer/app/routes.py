@@ -6,21 +6,21 @@ from app.models import AnalyzeRequest, AnalyzeResponse
 router = APIRouter()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.5-flash"
+# Use gemini-2.0-flash which doesn't have thinking token overhead
+GEMINI_MODEL = "gemini-2.0-flash"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 
 def build_prompt(req: AnalyzeRequest) -> str:
-    return f"""You are a DevSecOps expert. Analyze this CI/CD failure log and respond in EXACTLY this format with no extra text:
+    return f"""You are a DevSecOps expert. Analyze this CI/CD failure and respond in EXACTLY this format:
 
-ROOT CAUSE: <one sentence explaining the exact cause>
-SEVERITY: <must be exactly one of: LOW, MEDIUM, HIGH, CRITICAL>
+ROOT CAUSE: <one sentence>
+SEVERITY: HIGH
 FIX:
-1. <first step>
-2. <second step>
-3. <third step if needed>
+1. <step one>
+2. <step two>
+3. <step three>
 
-Context: {req.context}
 Service: {req.service}
 Build: {req.build_number}
 
@@ -30,22 +30,21 @@ LOG:
 
 @router.post("/analyze", response_model=AnalyzeResponse, tags=["analyzer"])
 async def analyze_log(req: AnalyzeRequest):
-    """Analyze a failure log using Gemini 2.5 Flash."""
+    """Analyze a failure log using Gemini AI."""
 
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
 
-    prompt = build_prompt(req)
-
     payload = {
         "contents": [
             {
-                "parts": [{"text": prompt}]
+                "parts": [{"text": build_prompt(req)}]
             }
         ],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 512,
+            "maxOutputTokens": 2048,
+            "candidateCount": 1,
         }
     }
 
@@ -66,7 +65,7 @@ async def analyze_log(req: AnalyzeRequest):
     try:
         full_analysis = data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (KeyError, IndexError):
-        raise HTTPException(status_code=502, detail="Unexpected Gemini response format")
+        raise HTTPException(status_code=502, detail=f"Unexpected response: {data}")
 
     # Parse structured fields
     root_cause = "See full analysis"
