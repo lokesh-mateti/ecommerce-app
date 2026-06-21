@@ -30,7 +30,8 @@ def test_login_invalid_credentials():
 
 def test_proxy_route_without_token_rejected():
     response = client.get("/api/v1/products/")
-    assert response.status_code in (401, 422)  # missing Authorization header
+    # HTTPBearer returns 403 when no token is provided
+    assert response.status_code in (401, 403, 422)
 
 
 def _get_token():
@@ -53,7 +54,6 @@ def test_proxy_route_to_product_service():
     respx.get(f"{PRODUCT_SERVICE_URL}/api/v1/products/").mock(
         return_value=httpx.Response(200, json=[])
     )
-
     response = client.get(
         "/api/v1/products/", headers={"Authorization": f"Bearer {token}"}
     )
@@ -66,7 +66,6 @@ def test_proxy_route_to_order_service():
     respx.get(f"{ORDER_SERVICE_URL}/api/v1/orders/").mock(
         return_value=httpx.Response(200, json=[])
     )
-
     response = client.get(
         "/api/v1/orders/", headers={"Authorization": f"Bearer {token}"}
     )
@@ -79,7 +78,6 @@ def test_proxy_route_upstream_down():
     respx.get(f"{PRODUCT_SERVICE_URL}/api/v1/products/").mock(
         side_effect=httpx.ConnectError("connection failed")
     )
-
     response = client.get(
         "/api/v1/products/", headers={"Authorization": f"Bearer {token}"}
     )
