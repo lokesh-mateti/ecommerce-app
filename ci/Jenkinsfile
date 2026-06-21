@@ -175,20 +175,23 @@ pipeline {
             script {
                 echo "Pipeline failed. Sending logs to AI Analyzer..."
                 try {
-                    // Collect build log from console log file directly
                     def buildLog = sh(
-                        script: "tail -100 ${env.JENKINS_HOME}/jobs/${env.JOB_NAME}/builds/${env.BUILD_NUMBER}/log 2>/dev/null || echo 'Build ${env.BUILD_NUMBER} failed for service: ${env.CHANGED_SERVICES}'",
+                        script: "tail -100 ${env.JENKINS_HOME}/jobs/${env.JOB_NAME}/builds/${env.BUILD_NUMBER}/log 2>/dev/null || echo 'Build failed'",
                         returnStdout: true
                     ).trim()
 
-                    // Escape special characters for JSON
-                    def escapedLog = buildLog.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
+                    writeFile file: 'ai-payload.json', text: groovy.json.JsonOutput.toJson([
+                        log: buildLog,
+                        service: env.CHANGED_SERVICES ?: 'unknown',
+                        build_number: env.BUILD_NUMBER,
+                        context: 'Jenkins CI/CD pipeline failure'
+                    ])
 
                     def response = sh(
                         script: """
                             curl -s -X POST ${AI_ANALYZER_URL} \
                                 -H 'Content-Type: application/json' \
-                                -d '{"log":"${escapedLog}","service":"${env.CHANGED_SERVICES ?: 'unknown'}","build_number":"${env.BUILD_NUMBER}","context":"Jenkins CI/CD pipeline failure"}' \
+                                -d @ai-payload.json \
                                 --connect-timeout 10 \
                                 --max-time 30 || echo '{"error": "AI analyzer unreachable"}'
                         """,
