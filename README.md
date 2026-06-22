@@ -250,4 +250,4 @@ See the [ecommerce-gitops](https://github.com/lokesh-mateti/ecommerce-gitops) re
 
 **Lokesh Mateti**
 - GitHub: [@lokesh-mateti](https://github.com/lokesh-mateti)
-- LinkedIn: [linkedin.com/in/lokesh-mateti](https://linkedin.com/in/lokesh-mateti)
+- LinkedIn: [linkedin.com/in/lokeshmateti](https://www.linkedin.com/in/lokeshmateti/)
