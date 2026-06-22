@@ -20,7 +20,7 @@ app.include_router(router)
 
 
 @app.get("/health")
-def health_check(:
+def health_check():
     """Liveness/readiness probe endpoint for Kubernetes."""
     return {"status": "healthy", "service": "order-service"}
 
