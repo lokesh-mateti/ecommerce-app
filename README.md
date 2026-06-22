@@ -63,7 +63,13 @@ All services are built with **Python FastAPI**, containerized with **multi-stage
 Every commit to this repo triggers a Jenkins pipeline with the following stages:
 
 ```
-Checkout → Install Deps → Unit Tests → SAST (Bandit) → SCA (Safety) → Docker Build → Container Scan (Trivy) → Push to ECR → Update GitOps Repo
+Code push → GitHub webhook → Jenkins
+     │
+     ├── Install deps → pytest → Bandit → Safety
+     ├── Docker build → Trivy scan → push to ECR
+     └── Update gitops tag → ArgoCD sync → pod deployed
+          │
+          └── (on failure) → ai-analyzer → Gemini analysis in build log
 ```
 
 - **SAST**: Bandit scans Python source for insecure code patterns
