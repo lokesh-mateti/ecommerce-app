@@ -112,4 +112,17 @@ async def update_order_status(order_id: str, request: Request, user: str = Depen
 @router.post("/api/v1/analyze/jenkins", tags=["ai-analyzer"])
 async def analyze_jenkins(request: Request):
     """Proxy Jenkins failure logs to AI Analyzer (no auth required)"""
-    return await _proxy(AI_ANALYZER_URL, "/analyze/jenkins", request)
+    url = f"{AI_ANALYZER_URL}/analyze/jenkins"
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                url,
+                content=await request.body(),
+                headers={"content-type": "application/json"},
+            )
+        return JSONResponse(
+            status_code=response.status_code,
+            content=response.json() if response.content else None,
+        )
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail=f"Upstream service unavailable: {AI_ANALYZER_URL}")
