@@ -6,24 +6,48 @@ from app.models import AnalyzeRequest, AnalyzeResponse
 router = APIRouter()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
+def get_gemini_url(model: str) -> str:
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 def build_prompt(req: AnalyzeRequest) -> str:
     return f"""You are a DevSecOps expert. Analyze this Jenkins failure and reply ONLY in this exact format:
-
 ROOT CAUSE: <one sentence explaining the cause>
 SEVERITY: <HIGH>
 FIX:
 1. <step one>
 2. <step two>
 3. <step three>
-
 Service: {req.service}
 Build: {req.build_number}
 LOG: {req.log[-800:]}"""
 
+async def call_gemini(payload: dict) -> dict:
+    """Try each model in order, falling back on 503."""
+    last_error = None
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for model in GEMINI_MODELS:
+            try:
+                response = await client.post(
+                    f"{get_gemini_url(model)}?key={GEMINI_API_KEY}",
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.status_code == 503:
+                    last_error = f"Model {model} unavailable (503)"
+                    continue  # try next model
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                last_error = f"Gemini API error ({model}): {e.response.text}"
+                if e.response.status_code != 503:
+                    raise HTTPException(status_code=502, detail=last_error)
+                continue  # 503 — try next model
+            except httpx.RequestError as e:
+                raise HTTPException(status_code=503, detail=f"Cannot reach Gemini API: {str(e)}")
+
+    raise HTTPException(status_code=503, detail=f"All Gemini models unavailable. Last error: {last_error}")
 
 @router.post("/analyze", response_model=AnalyzeResponse, tags=["analyzer"])
 async def analyze_log(req: AnalyzeRequest):
@@ -42,19 +66,7 @@ async def analyze_log(req: AnalyzeRequest):
         }
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            response.raise_for_status()
-            data = response.json()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"Gemini API error: {e.response.text}")
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Cannot reach Gemini API: {str(e)}")
+    data = await call_gemini(payload)
 
     try:
         full_analysis = data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -87,7 +99,6 @@ async def analyze_log(req: AnalyzeRequest):
         severity=severity,
         full_analysis=full_analysis,
     )
-
 
 @router.post("/analyze/jenkins", tags=["analyzer"])
 async def analyze_jenkins_failure(req: AnalyzeRequest):
