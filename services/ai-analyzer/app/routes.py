@@ -62,7 +62,7 @@ async def analyze_log(req: AnalyzeRequest):
         ],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 300,
+            "maxOutputTokens": 1024,
         }
     }
 
