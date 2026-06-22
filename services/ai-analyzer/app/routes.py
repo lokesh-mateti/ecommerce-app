@@ -15,7 +15,7 @@ def build_prompt(req: AnalyzeRequest) -> str:
     return f"""You are a DevSecOps expert. Analyze this Jenkins failure and reply ONLY in this exact format:
 ROOT CAUSE: <one sentence explaining the cause>
 SEVERITY: <HIGH>
-FIX:-
+FIX:
 1. <step one>
 2. <step two>
 3. <step three>
