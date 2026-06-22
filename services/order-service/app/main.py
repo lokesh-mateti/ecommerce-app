@@ -27,4 +27,4 @@ def health_check(:
 
 @app.get("/")
 def root():
-    return {"message": "Order Service is running"}
+    return {"message": "Order Service is running fine"}
