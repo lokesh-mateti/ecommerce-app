@@ -20,7 +20,7 @@ FIX: <one sentence with the exact fix>
 
 Service: {req.service}
 Build: {req.build_number}
-LOG: {req.log[-2000:]}"""
+LOG: {req.log[-5000:]}"""
 
 async def call_gemini(payload: dict) -> dict:
     """Try each model in order, falling back on 503."""
