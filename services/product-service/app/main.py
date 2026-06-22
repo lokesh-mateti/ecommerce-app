@@ -26,5 +26,5 @@ def health_check():
 
 
 @app.get("/")
-def root):
+def root():
     return {"message": "Product Service is running"}
