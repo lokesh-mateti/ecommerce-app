@@ -176,10 +176,15 @@ pipeline {
                 echo "Pipeline failed. Sending logs to AI Analyzer..."
                 try {
                     def buildLog = sh(
-                        script: "tail -100 ${env.JENKINS_HOME}/jobs/${env.JOB_NAME}/builds/${env.BUILD_NUMBER}/log 2>/dev/null || echo 'Build failed'",
+                        script: """
+                            LOG_FILE="${env.JENKINS_HOME}/jobs/${env.JOB_NAME}/builds/${env.BUILD_NUMBER}/log"
+                            echo '=== ERROR CONTEXT ==='
+                            grep -B5 -A5 -i 'error\\|exception\\|syntaxerror\\|failed\\|failure' "\$LOG_FILE" | head -100 2>/dev/null || true
+                            echo '=== LAST 50 LINES ==='
+                            tail -50 "\$LOG_FILE" 2>/dev/null || echo 'Build failed'
+                        """,
                         returnStdout: true
                     ).trim()
-
                     writeFile file: 'ai-payload.json', text: groovy.json.JsonOutput.toJson([
                         log: buildLog,
                         service: env.CHANGED_SERVICES ?: 'unknown',
