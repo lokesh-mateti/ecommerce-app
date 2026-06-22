@@ -12,7 +12,6 @@ pipeline {
         AWS_ACCOUNT_ID   = credentials('aws-account-id')
         ECR_REGISTRY     = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         GITOPS_CREDS     = credentials('gitops-repo-creds')
-        AI_ANALYZER_URL  = 'http://ai-analyzer.ecommerce-dev.svc.cluster.local/analyze/jenkins'
         AI_ANALYZER_URL = credentials('ai-analyzer-url')
     }
 
