@@ -18,6 +18,7 @@ security = HTTPBearer()
 
 PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://localhost:8001")
 ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://localhost:8002")
+AI_ANALYZER_URL = os.getenv("AI_ANALYZER_URL", "http://localhost:8003")
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -107,3 +108,8 @@ async def get_order(order_id: str, request: Request, user: str = Depends(get_cur
 async def update_order_status(order_id: str, request: Request, user: str = Depends(get_current_user)):
     """Update order status"""
     return await _proxy(ORDER_SERVICE_URL, f"/api/v1/orders/{order_id}/status", request)
+
+@router.post("/api/v1/analyze/jenkins", tags=["ai-analyzer"])
+async def analyze_jenkins(request: Request):
+    """Proxy Jenkins failure logs to AI Analyzer (no auth required)"""
+    return await _proxy(AI_ANALYZER_URL, "/analyze/jenkins", request)
