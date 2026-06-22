@@ -12,16 +12,15 @@ def get_gemini_url(model: str) -> str:
     return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 def build_prompt(req: AnalyzeRequest) -> str:
-    return f"""You are a DevSecOps expert. Analyze this Jenkins failure and reply ONLY in this exact format:
-ROOT CAUSE: <one sentence explaining the cause>
-SEVERITY: <HIGH>
-FIX:
-1. <step one>
-2. <step two>
-3. <step three>
+    return f"""You are a DevSecOps expert. Analyze this Jenkins failure log and respond in exactly this format (keep it brief, 3-4 lines total):
+
+ROOT CAUSE: <one sentence>
+SEVERITY: <HIGH/MEDIUM/LOW>
+FIX: <one sentence with the exact fix>
+
 Service: {req.service}
 Build: {req.build_number}
-LOG: {req.log[-800:]}"""
+LOG: {req.log[-2000:]}"""
 
 async def call_gemini(payload: dict) -> dict:
     """Try each model in order, falling back on 503."""
