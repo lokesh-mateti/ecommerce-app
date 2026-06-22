@@ -6,7 +6,7 @@ from app.routes import router
 
 app = FastAPI(
     title="API Gateway",
-    description="Single entry point that authenticates requests and routes them to backend microservices",
+    description="Single entry point that authenticates requests and routes them to backend microservices of product-service and order-service",
     version="1.0.0",
 )
 
