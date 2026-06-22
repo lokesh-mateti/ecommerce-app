@@ -1,6 +1,6 @@
 # 🛒 E-Commerce Microservices Platform
 
-A production-grade microservices application deployed on AWS EKS using a full DevSecOps pipeline with GitOps delivery. Built to demonstrate real-world practices across containerization, CI/CD, security scanning, infrastructure-as-code, and GitOps.
+A production-grade microservices application deployed on AWS EKS using a full DevSecOps pipeline with GitOps delivery. Built to demonstrate real-world practices across containerization, CI/CD, security scanning, infrastructure-as-code, GitOps, and AIOps.
 
 ---
 
@@ -12,6 +12,7 @@ A production-grade microservices application deployed on AWS EKS using a full De
                         │                                          │
 Internet ──► ALB ──►   │  api-gateway ──► product-service         │
                         │              └──► order-service          │
+                        │              └──► ai-analyzer            │
                         │                                          │
                         └─────────────────────────────────────────┘
                                          ▲
@@ -36,6 +37,7 @@ Internet ──► ALB ──►   │  api-gateway ──► product-service   
 | `api-gateway` | Single entry point — JWT auth + request routing | 8000 |
 | `product-service` | Product catalog CRUD API | 8000 |
 | `order-service` | Order management, validates against product-service | 8000 |
+| `ai-analyzer` | AIOps service — analyzes Jenkins failures using Gemini AI | 8000 |
 
 All services are built with **Python FastAPI**, containerized with **multi-stage Docker builds**, and run as **non-root users**.
 
@@ -51,6 +53,7 @@ All services are built with **Python FastAPI**, containerized with **multi-stage
 | **CI/CD** | Jenkins |
 | **GitOps** | ArgoCD + Helm |
 | **Security Scanning** | Trivy, Bandit, Safety, OPA |
+| **AIOps** | Google Gemini 2.5 Flash Lite |
 | **Language** | Python 3.12 / FastAPI |
 
 ---
@@ -67,6 +70,55 @@ Checkout → Install Deps → Unit Tests → SAST (Bandit) → SCA (Safety) → 
 - **SCA**: Safety checks `requirements.txt` for known CVEs in dependencies
 - **Container Scan**: Trivy scans the built image for HIGH/CRITICAL vulnerabilities, secrets, and misconfigurations
 - **GitOps Update**: On success, Jenkins commits the new image tag to `ecommerce-gitops` — ArgoCD detects the change and auto-deploys to EKS
+- **AIOps**: On pipeline failure, Jenkins automatically sends build logs to ai-analyzer, which uses Gemini AI to produce a root cause analysis printed directly in the build log
+
+---
+
+## 🤖 AIOps — AI-Powered Failure Analysis
+
+When a Jenkins build fails, the pipeline automatically triggers the ai-analyzer service:
+
+```
+Build fails
+     │
+     ▼
+Jenkins post { failure } block fires
+     │
+     ▼
+Build logs sent to ALB → api-gateway → ai-analyzer
+     │
+     ▼
+ai-analyzer calls Gemini 2.5 Flash Lite API
+     │
+     ▼
+Root cause analysis printed in Jenkins build log
+```
+
+**ai-analyzer** is a FastAPI service that wraps Google's Gemini API. It receives CI failure context (job name, build URL, logs) and returns a human-readable explanation of what went wrong and how to fix it.
+
+### Setup for contributors
+
+ai-analyzer requires a Gemini API key stored as a Kubernetes secret:
+
+```bash
+kubectl create secret generic ai-analyzer-secret \
+  --from-literal=GEMINI_API_KEY=<your-key> \
+  -n ecommerce-dev
+```
+
+Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
+
+The Jenkins pipeline uses the `ai-analyzer-url` Jenkins credential to reach the analyzer via ALB:
+
+1. Get your ALB DNS after deploying:
+```bash
+kubectl get ing -n ecommerce-dev
+```
+
+2. Add a Jenkins credential:
+   - **Kind**: Secret text
+   - **ID**: `ai-analyzer-url`
+   - **Value**: `http://<YOUR_ALB_DNS>/api/v1/analyze/jenkins`
 
 ---
 
@@ -77,7 +129,8 @@ ecommerce-app/
 ├── services/
 │   ├── api-gateway/        # JWT auth + reverse proxy to backend services
 │   ├── order-service/      # Order management microservice
-│   └── product-service/    # Product catalog microservice
+│   ├── product-service/    # Product catalog microservice
+│   └── ai-analyzer/        # AIOps failure analysis service (Gemini AI)
 ├── infra/
 │   └── terraform/
 │       ├── modules/
@@ -105,6 +158,7 @@ ecommerce-app/
 - kubectl
 - Docker
 - Python 3.12
+- Google Gemini API key (free tier works — [aistudio.google.com](https://aistudio.google.com))
 
 ### 1. Provision Infrastructure
 ```bash
@@ -119,7 +173,6 @@ terraform apply
 
 ### 2. Configure kubectl
 ```bash
-# Output from terraform apply gives this command:
 aws eks update-kubeconfig --region us-east-1 --name ecommerce-cluster
 ```
 
@@ -136,6 +189,10 @@ uvicorn app.main:app --reload --port 8002
 cd services/api-gateway
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
+
+cd services/ai-analyzer
+pip install -r requirements.txt
+GEMINI_API_KEY=<your-key> uvicorn app.main:app --reload --port 8003
 ```
 
 ### 4. Run Tests
@@ -155,6 +212,7 @@ pytest tests/ -v
 - OPA policies enforce `runAsNonRoot` and resource limits across all deployments
 - Secrets injected via **Kubernetes Secrets** (never in code or Helm values)
 - Terraform remote state encrypted in S3 with DynamoDB locking
+- Gemini API key stored as Kubernetes Secret, never in code or Helm values
 
 ---
 
@@ -175,6 +233,8 @@ ArgoCD detects git change → auto-syncs to EKS
         ▼
 New version running in cluster (zero manual kubectl apply)
 ```
+
+On failure at any stage, ai-analyzer automatically provides root cause analysis in the build log.
 
 See the [ecommerce-gitops](https://github.com/lokesh-mateti/ecommerce-gitops) repo for Helm charts and ArgoCD manifests.
 
